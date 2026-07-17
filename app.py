@@ -13,6 +13,30 @@ from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras.models import load_model
+# --- CACHED MODEL LOADING ---
+@st.cache_resource
+def load_all_models():
+    """Loads and caches all feature extractors and sequence models using dynamic paths."""
+    try:
+        # Determine the exact absolute folder path where app.py lives
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        
+        tokenizer_path = os.path.join(BASE_DIR, 'tokenizer.pkl')
+        model_path = os.path.join(BASE_DIR, 'caption_model.keras')
+        
+        yolo_model = YOLO('yolov8m.pt')
+        resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg')
+        
+        # Open tokenizer with the dynamic absolute path
+        with open(tokenizer_path, 'rb') as f:
+            tokenizer = pickle.load(f)
+            
+        # Load the LSTM model with the dynamic absolute path
+        lstm_model = load_model(model_path)
+        return yolo_model, resnet_model, tokenizer, lstm_model
+    except Exception as e:
+        st.error(f"Error loading models. Please verify that 'tokenizer.pkl' and 'caption_model.keras' are in the same folder. \nDetails: {e}")
+        return None, None, None, None
 
 # YOLO Import
 from ultralytics import YOLO
