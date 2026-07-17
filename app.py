@@ -1,21 +1,12 @@
-import os
+
+ import os
 import pickle
 import numpy as np
-import cv2
 import tempfile
 from collections import Counter
 import tensorflow as tf
 import streamlit as st
-
-import sys
-
-# Core hack to force Streamlit Cloud to use the headless version of OpenCV
-try:
-    import cv2
-except ImportError:
-    os.system("pip uninstall -y opencv-python opencv-python-headless")
-    os.system("pip install opencv-python-headless")
-    import cv2
+from PIL import Image
 
 # Keras Imports
 from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input
@@ -183,7 +174,7 @@ def generate_caption_beam_search(model, tokenizer, image_feature, max_length, de
         if all(seq[-1] == 'end' for seq, _ in beam):
             break
             
-    best_seq = beam[-1][0]  # Grab top beam candidate
+    best_seq = beam[-1][0]
     if best_seq[0] == '<start>':
         best_seq = best_seq[1:]
     if best_seq[-1] == 'end':
@@ -196,7 +187,6 @@ if yolo_model and resnet_model and tokenizer and lstm_model:
     uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
     
     if uploaded_file is not None:
-        # Save uploaded file to a secure temporary path for processing
         with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
             temp_file.write(uploaded_file.read())
             temp_path = temp_file.name
@@ -210,11 +200,11 @@ if yolo_model and resnet_model and tokenizer and lstm_model:
                 lstm_model, tokenizer, img_feature, MAX_LENGTH, detected_classes, beam_width=5, alpha=0.8
             )
             
-            # 3. Process YOLO Annotated Image
+            # 3. Process YOLO Annotated Image using Pure Numpy/PIL (Bypassing cv2)
             plotted_img_bgr = yolo_results.plot()
-            plotted_img_rgb = cv2.cvtColor(plotted_img_bgr, cv2.COLOR_BGR2RGB)
+            # Convert BGR to RGB array manually using numpy slicing
+            plotted_img_rgb = plotted_img_bgr[:, :, ::-1] 
             
-        # Clean up temporary file
         os.unlink(temp_path)
         
         # --- DISPLAY RESULTS ---
@@ -225,4 +215,5 @@ if yolo_model and resnet_model and tokenizer and lstm_model:
             st.write(f"**Objects Detected (Confidence > 40%):** {', '.join(set(detected_classes))}")
         
         st.subheader("Object Detection Visualizer:")
-        st.image(plotted_img_rgb, use_container_width=True)
+        st.image(plotted_img_rgb, use_container_width=True)  
+                  
