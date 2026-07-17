@@ -1,15 +1,11 @@
-# ---------------------- MODEL LOADING ----------------------
 import os
 import sys
 
 # ====================================================================
-# 0. STRICT ENVIRONMENT ISOLATION (CRITICAL FOR SEGMENTATION FAULT)
+# 0. STRICT ENVIRONMENT ISOLATION (MUST RUN FIRST)
 # ====================================================================
-# Force absolute CPU mode and disable all GPU driver searches
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 os.environ['CUDA_MANAGED_MEMORY'] = '0'
-
-# Strip down TensorFlow memory allocation behaviors
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 os.environ['OMP_NUM_THREADS'] = '1'
@@ -29,31 +25,37 @@ except ImportError:
     st.error("OpenCV system files are missing. Ensure your `packages.txt` file contains:\n\n`libgl1-mesa-glx` \n`libglib2.0-0`")
 
 # ====================================================================
-# 1. CONFIGURATION: PASTE YOUR DIRECT DOWNLOAD LINKS HERE (OPTIONAL)
+# 1. CONFIGURATION
 # ====================================================================
 CAPTION_MODEL_URL = "https://your-hosting-site.com/caption_model.keras"
 TOKENIZER_URL = "https://your-hosting-site.com/tokenizer.pkl"
 YOLO_URL = "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8m.pt"
 
 # ====================================================================
-# 2. DYNAMIC REPAIR & DOWNLOAD ENGINE
+# 2. THREAD-SAFE REPAIR & DOWNLOAD ENGINE
 # ====================================================================
 def secure_and_download(filename, download_url, expected_min_size_mb=1.0):
-    """Detects fake Git LFS text pointer files, removes them, and downloads the real binary."""
+    """Safely handles Git LFS pointer text files and triggers authentic binary downloads."""
     if os.path.exists(filename):
-        file_size_bytes = os.path.getsize(filename)
-        min_bytes = expected_min_size_mb * 1024 * 1024
-        
-        if file_size_bytes < min_bytes:
-            st.warning(f"Removing corrupted placeholder file: '{filename}' ({file_size_bytes} bytes)...")
-            os.remove(filename)
+        try:
+            file_size_bytes = os.path.getsize(filename)
+            min_bytes = expected_min_size_mb * 1024 * 1024
+            
+            if file_size_bytes < min_bytes:
+                st.warning(f"Removing placeholder file: '{filename}'...")
+                # Thread-safe deletion check
+                if os.path.exists(filename):
+                    os.remove(filename)
+        except FileNotFoundError:
+            # Another concurrent execution thread already deleted it
+            pass
             
     if not os.path.exists(filename):
         if "your-hosting-site" in download_url and filename != 'yolov8m.pt':
             create_mock_fallback_file(filename)
             return
 
-        with st.spinner(f"📥 Downloading authentic {filename} from remote server..."):
+        with st.spinner(f"📥 Downloading authentic {filename}..."):
             try:
                 opener = urllib.request.build_opener()
                 opener.addheaders = [('User-agent', 'Mozilla/5.0')]
@@ -66,9 +68,8 @@ def secure_and_download(filename, download_url, expected_min_size_mb=1.0):
                 create_mock_fallback_file(filename)
 
 def create_mock_fallback_file(filename):
-    """Creates temporary working components if actual files aren't hosted yet."""
-    import tensorflow as tf
-    st.info(f"⚙️ Generating a local fallback mock for '{filename}' to keep the UI active...")
+    """Creates fallback mocks purely using basic pickle or isolated lazy imports."""
+    st.info(f"⚙️ Generating a local fallback mock for '{filename}'...")
     
     if filename == 'tokenizer.pkl':
         mock_tokenizer = {"<start>": 1, "<end>": 2, "a": 3, "photo": 4, "of": 5}
@@ -76,26 +77,27 @@ def create_mock_fallback_file(filename):
             pickle.dump(mock_tokenizer, f)
             
     elif filename == 'caption_model.keras':
+        # LAZY IMPORT ONLY WHEN NEEDED: Prevents TensorFlow from starting prematurely
+        import tensorflow as tf
         inputs = tf.keras.Input(shape=(2048,))
         outputs = tf.keras.layers.Dense(10, activation='softmax')(inputs)
         mock_model = tf.keras.Model(inputs=inputs, outputs=outputs)
         mock_model.save(filename)
 
-# Run verification metrics before loading models into memory
+# Run verification metrics safely before cache assignments
 secure_and_download('yolov8m.pt', YOLO_URL, expected_min_size_mb=10.0)
 secure_and_download('caption_model.keras', CAPTION_MODEL_URL, expected_min_size_mb=2.0)
 secure_and_download('tokenizer.pkl', TOKENIZER_URL, expected_min_size_mb=0.005)
 
 # ====================================================================
-# 3. RESOURCE INITIALIZATION (CACHED TO PREVENT DOUBLE ALLOCATION)
+# 3. RESOURCE INITIALIZATION (CACHED INTERFACES)
 # ====================================================================
 @st.cache_resource
 def load_yolo():
     try:
-        from ultralytics import YOLO
-        # Prevent ultralytics from trying to run checks on CUDA devices
         import torch
         torch.backends.cudnn.enabled = False
+        from ultralytics import YOLO
         return YOLO('yolov8m.pt')
     except Exception as e:
         st.error(f"YOLOv8 structural error: {e}")
@@ -114,7 +116,6 @@ def load_tokenizer():
 def load_caption_model():
     try:
         import tensorflow as tf
-        # Soften memory usage right before compilation
         tf.config.set_visible_devices([], 'GPU')
         tf.keras.backend.clear_session()
         return tf.keras.models.load_model('caption_model.keras')
