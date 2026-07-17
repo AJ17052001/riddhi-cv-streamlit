@@ -1,7 +1,5 @@
 streamlit
 ultralytics
-tensorflow>=2.16.0
+tensorflow
 opencv-python
 numpy
-matplotlib
-tqdm
