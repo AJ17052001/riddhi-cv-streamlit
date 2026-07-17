@@ -162,6 +162,6 @@ if uploaded_file is not None:
                     # caption = run_inference(caption_model, tokenizer, features)
                     st.info("System fully connected! Plug your feature embedding function down on line 147 to stream structural text.")
             except Exception as generation_error:
-                st.error(f"Error loading models. Please verify that download links are correct. \nDetails: {e}")
-               return None, None, None, None
                 st.error(f"Error mapping features to text sequence: {generation_error}")
+                
+           
