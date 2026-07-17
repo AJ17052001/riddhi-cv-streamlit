@@ -1,18 +1,28 @@
 # ---------------------- MODEL LOADING ----------------------
 import os
+import sys
+
+# ====================================================================
+# 0. STRICT ENVIRONMENT ISOLATION (CRITICAL FOR SEGMENTATION FAULT)
+# ====================================================================
+# Force absolute CPU mode and disable all GPU driver searches
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+os.environ['CUDA_MANAGED_MEMORY'] = '0'
+
+# Strip down TensorFlow memory allocation behaviors
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['TF_NUM_INTEROP_THREADS'] = '1'
+os.environ['TF_NUM_INTRAOP_THREADS'] = '1'
+
 import pickle
 import numpy as np
 import streamlit as st
 from PIL import Image
 import urllib.request
 
-# Force TensorFlow to run light on memory and prevent CPU-based segmentation faults
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-os.environ['OMP_NUM_THREADS'] = '1'
-os.environ['TF_NUM_INTEROP_THREADS'] = '1'
-os.environ['TF_NUM_INTRAOP_THREADS'] = '1'
-
-# Check for OpenCV system dependencies
+# Check for OpenCV dependencies
 try:
     import cv2
 except ImportError:
@@ -71,45 +81,51 @@ def create_mock_fallback_file(filename):
         mock_model = tf.keras.Model(inputs=inputs, outputs=outputs)
         mock_model.save(filename)
 
-# Run verification matrix before loading
+# Run verification metrics before loading models into memory
 secure_and_download('yolov8m.pt', YOLO_URL, expected_min_size_mb=10.0)
 secure_and_download('caption_model.keras', CAPTION_MODEL_URL, expected_min_size_mb=2.0)
 secure_and_download('tokenizer.pkl', TOKENIZER_URL, expected_min_size_mb=0.005)
 
 # ====================================================================
-# 3. RESOURCE INITIALIZATION
+# 3. RESOURCE INITIALIZATION (CACHED TO PREVENT DOUBLE ALLOCATION)
 # ====================================================================
 @st.cache_resource
-def load_all_models():
-    # Load Ultralytics Object Detector
+def load_yolo():
     try:
         from ultralytics import YOLO
-        yolo_model = YOLO('yolov8m.pt')
+        # Prevent ultralytics from trying to run checks on CUDA devices
+        import torch
+        torch.backends.cudnn.enabled = False
+        return YOLO('yolov8m.pt')
     except Exception as e:
         st.error(f"YOLOv8 structural error: {e}")
-        yolo_model = None
+        return None
 
-    # Load Word Vocabulary Tokenizer
+@st.cache_resource
+def load_tokenizer():
     try:
         with open('tokenizer.pkl', 'rb') as f:
-            tokenizer = pickle.load(f)
+            return pickle.load(f)
     except Exception as e:
         st.error(f"Tokenizer parsing error: {e}")
-        tokenizer = None
+        return None
 
-    # Load Keras Recurrent Caption Generator
+@st.cache_resource
+def load_caption_model():
     try:
         import tensorflow as tf
-        # Clear background graph sessions to minimize memory footprint
+        # Soften memory usage right before compilation
+        tf.config.set_visible_devices([], 'GPU')
         tf.keras.backend.clear_session()
-        caption_model = tf.keras.models.load_model('caption_model.keras')
+        return tf.keras.models.load_model('caption_model.keras')
     except Exception as e:
         st.error(f"Keras weight compilation error: {e}")
-        caption_model = None
+        return None
 
-    return yolo_model, tokenizer, caption_model
-
-yolo, tokenizer, caption_model = load_all_models()
+# Load each cleanly separated to isolate memory allocations
+yolo = load_yolo()
+tokenizer = load_tokenizer()
+caption_model = load_caption_model()
 
 # ====================================================================
 # 4. STREAMLIT FRONTEND USER INTERFACE
@@ -120,10 +136,7 @@ st.write("Upload any image file to segment objects via YOLOv8 and generate predi
 uploaded_file = st.file_uploader("Upload Image Asset...", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
-    # Read and display media object
     image = Image.open(uploaded_file)
-    
-    # FIX: Replaced deprecated use_container_width=True with width='stretch'
     st.image(image, caption="Target Image Matrix", width='stretch')
     
     if yolo is None or tokenizer is None or caption_model is None:
@@ -157,6 +170,6 @@ if uploaded_file is not None:
                     st.warning("Running mockup pipeline. Replace placeholders at the top of code to hook up your unique models!")
                     st.info(f"**Generated Text prediction:** A photo showing context containing: {', '.join(detected_objects) if detected_objects else 'an item'}.")
                 else:
-                    st.info("System fully connected! Plug your feature embedding function directly down here to stream structural text.")
+                    st.info("System fully connected! Plug your feature embedding function down here to stream structural text.")
             except Exception as generation_error:
                 st.error(f"Error mapping features to text sequence: {generation_error}")
