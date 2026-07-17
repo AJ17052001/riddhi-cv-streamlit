@@ -7,6 +7,16 @@ from collections import Counter
 import tensorflow as tf
 import streamlit as st
 
+import sys
+
+# Core hack to force Streamlit Cloud to use the headless version of OpenCV
+try:
+    import cv2
+except ImportError:
+    os.system("pip uninstall -y opencv-python opencv-python-headless")
+    os.system("pip install opencv-python-headless")
+    import cv2
+
 # Keras Imports
 from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
